@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Backend.Models;
 using Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,20 +6,13 @@ namespace Backend.Controllers;
 
 [ApiController]
 [Route("api/webhook")]
-public class WebhookController : ControllerBase
+public class WebhookController(VulnerabilityScanner vulnerabilityScanner) : ControllerBase
 {
     private const string FallbackUnsafeCode = "var query = \"SELECT * FROM Users WHERE Name = '\" + input + \"'\";";
-    private readonly GeminiService _geminiService;
-    private readonly ILogger<WebhookController> _logger;
-
-    public WebhookController(GeminiService geminiService, ILogger<WebhookController> logger)
-    {
-        _geminiService = geminiService;
-        _logger = logger;
-    }
+    private readonly VulnerabilityScanner _vulnerabilityScanner = vulnerabilityScanner;
 
     [HttpPost("github")]
-    public IActionResult ReceiveGithubWebhook([FromBody] JsonElement payload)
+    public async Task<IActionResult> ReceiveGithubWebhook([FromBody] JsonElement payload)
     {
         var commitId = ExtractString(payload, "head_commit", "id")
                        ?? ExtractLastCommitProperty(payload, "id")
@@ -36,33 +28,16 @@ public class WebhookController : ControllerBase
                       ?? "No commit message";
 
         var rawCode = ExtractMockUnsafeCode(payload);
+        var result = await _vulnerabilityScanner.AnalyzeCodeAsync(rawCode, "webhook", commitId, author, message);
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var result = await _geminiService.AnalyzeCodeAsync(rawCode, commitId, author, message);
-                lock (ScanResult.ResultsLock)
-                {
-                    ScanResult.Results.Insert(0, result);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Webhook analysis failed for commit {CommitId}", commitId);
-            }
-        });
-
-        return Ok(new { message = "Webhook accepted. Analysis queued." });
+        return Ok(new { message = "Webhook analyzed successfully.", result });
     }
 
     [HttpGet("results")]
-    public IActionResult GetResults()
+    public async Task<IActionResult> GetResults()
     {
-        lock (ScanResult.ResultsLock)
-        {
-            return Ok(ScanResult.Results.ToList());
-        }
+        var items = await _vulnerabilityScanner.GetScanHistoryAsync("webhook", 100);
+        return Ok(items);
     }
 
     private static string ExtractMockUnsafeCode(JsonElement payload)

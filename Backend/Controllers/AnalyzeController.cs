@@ -5,14 +5,9 @@ namespace Backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AnalyzeController : ControllerBase
+public class AnalyzeController(VulnerabilityScanner vulnerabilityScanner) : ControllerBase
 {
-    private readonly GeminiService _geminiService;
-
-    public AnalyzeController(GeminiService geminiService)
-    {
-        _geminiService = geminiService;
-    }
+    private readonly VulnerabilityScanner _vulnerabilityScanner = vulnerabilityScanner;
 
     [HttpPost]
     public async Task<IActionResult> Analyze([FromBody] AnalyzeRequest request)
@@ -22,8 +17,15 @@ public class AnalyzeController : ControllerBase
             return BadRequest(new { message = "RawCode is required." });
         }
 
-        var result = await _geminiService.AnalyzeCodeAsync(request.RawCode);
+        var result = await _vulnerabilityScanner.AnalyzeCodeAsync(request.RawCode, "manual", message: request.Language);
         return Ok(result);
+    }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> History()
+    {
+        var items = await _vulnerabilityScanner.GetScanHistoryAsync("manual", 100);
+        return Ok(items);
     }
 }
 

@@ -1,9 +1,9 @@
-# AI-powered Code Vulnerability Intelligence (MVP)
+# Local Vulnerability Intelligence MVP
 
-A full MVP with:
-- **Backend**: .NET 8 Web API
+A 100% local lightweight MVP with:
+- **Backend**: .NET 8 Web API + MongoDB.Driver
 - **Frontend**: Vue 3 (Vite) + Tailwind CSS
-- **AI Engine**: Gemini 1.5 Flash with a mock AST prescreener for SQL Injection, XSS, Hardcoded Secrets, and Path Traversal.
+- **Engine**: AST/Regex pattern matching with a MongoDB knowledge base
 
 ## Project Structure
 
@@ -12,16 +12,36 @@ A full MVP with:
 - `/Backend/*`
 - `/Frontend/*`
 
+## Requirements
+
+- .NET 8 SDK
+- Node.js 18+
+- MongoDB running locally at `mongodb://localhost:27017`
+
 ## Backend Setup
 
 ```bash
 cd Backend
-export GEMINI_API_KEY="your_key_here"
 dotnet restore
 dotnet run
 ```
 
-Default backend URL: `http://localhost:5000` (or the URL reported by ASP.NET runtime).
+Default backend URL: `http://localhost:5000` (or the ASP.NET runtime URL).
+
+### MongoDB Configuration
+
+`Backend/appsettings.json` defaults to:
+
+```json
+{
+  "MongoDb": {
+    "ConnectionString": "mongodb://localhost:27017",
+    "DatabaseName": "VulnerabilityDB",
+    "KnowledgeBaseCollection": "KnowledgeBase",
+    "ScanHistoryCollection": "ScanHistory"
+  }
+}
+```
 
 ## Frontend Setup
 
@@ -42,14 +62,16 @@ VITE_API_BASE_URL=http://localhost:5000
 ## API Endpoints
 
 - `POST /api/analyze`
-  - Body: `{ "rawCode": "...", "language": "csharp" }`
+- `GET /api/analyze/history`
 - `POST /api/webhook/github`
-  - Accepts GitHub push payload (sample in `webhook-payload-sample.json`)
 - `GET /api/webhook/results`
-  - Returns in-memory analyzed webhook commit results
+- `POST /api/dataset/add`
+- `GET /api/dataset/all`
+- `POST /api/pentest/run`
 
 ## Notes
 
-- The AST pre-screen now still sends clean-looking code to Gemini for confirmation and caches snippets that Gemini verifies as safe.
-- Webhook analysis runs asynchronously so GitHub gets an immediate 200 response.
-- Results are kept in in-memory storage for MVP purposes.
+- All scans are performed locally using regex/AST-style matching rules from MongoDB.
+- `KnowledgeBase` stores vulnerability rules.
+- `ScanHistory` stores logs from manual scans and webhook scans.
+- Hardcoded secret detection includes strict matching for patterns like `api_key = "..."` and `password = "..."`.

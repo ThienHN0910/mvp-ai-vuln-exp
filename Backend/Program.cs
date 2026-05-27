@@ -1,11 +1,19 @@
 using Backend.Services;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddHttpClient();
-builder.Services.AddSingleton<GeminiService>();
+
+builder.Services.AddSingleton<IMongoClient>(_ =>
+{
+    var connectionString = builder.Configuration["MongoDb:ConnectionString"] ?? "mongodb://localhost:27017";
+    return new MongoClient(connectionString);
+});
+
+builder.Services.AddSingleton<VulnerabilityScanner>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
