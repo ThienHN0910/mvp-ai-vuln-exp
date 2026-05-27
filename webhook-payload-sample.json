@@ -1,0 +1,29 @@
+{
+  "ref": "refs/heads/main",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "1111111111111111111111111111111111111111",
+  "repository": {
+    "name": "mvp-ai-vuln-exp",
+    "full_name": "ThienHN0910/mvp-ai-vuln-exp"
+  },
+  "pusher": {
+    "name": "demo-user"
+  },
+  "head_commit": {
+    "id": "1111111111111111111111111111111111111111",
+    "message": "feat: add insecure query",
+    "author": {
+      "name": "demo-user"
+    }
+  },
+  "commits": [
+    {
+      "id": "1111111111111111111111111111111111111111",
+      "message": "feat: add insecure query",
+      "author": {
+        "name": "demo-user"
+      }
+    }
+  ],
+  "mock_unsafe_code": "+ var query = \"SELECT * FROM Users WHERE Name = '\" + input + \"'\";"
+}
