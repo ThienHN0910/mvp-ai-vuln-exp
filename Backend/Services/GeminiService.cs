@@ -47,12 +47,16 @@ public class GeminiService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly MongoDbService _mongoDbService;
+    private readonly bool _autoSaveToMongo;
 
-    public GeminiService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    public GeminiService(IHttpClientFactory httpClientFactory, IConfiguration configuration, MongoDbService mongoDbService)
     {
         _httpClientFactory = httpClientFactory;
         _apiKey = configuration["GEMINI_API_KEY"] ?? configuration["Gemini:ApiKey"] ?? string.Empty;
         _model = configuration["Gemini:Model"] ?? DefaultGeminiModel;
+        _mongoDbService = mongoDbService;
+        _autoSaveToMongo = configuration.GetValue<bool>("AutoSave:SaveToMongoOnGeminiConfirm");
     }
 
     public async Task<ScanResult> AnalyzeCodeAsync(string rawCode, string? commitId = null, string? author = null, string? message = null)
@@ -104,7 +108,7 @@ public class GeminiService
                 ? (detectedType ?? SafeReviewType)
                 : parsed.Type;
 
-            return CreateResult(
+            var result = CreateResult(
                 true,
                 resolvedType,
                 string.IsNullOrWhiteSpace(parsed.Severity) ? DefaultSeverityFor(resolvedType) : parsed.Severity,
@@ -116,6 +120,20 @@ public class GeminiService
                 commitId,
                 author,
                 message);
+
+            if (_autoSaveToMongo)
+            {
+                try
+                {
+                    await _mongoDbService.SaveScanResultAsync(result);
+                }
+                catch
+                {
+                    // Do not fail scan when auto-save fails; log in future enhancements
+                }
+            }
+
+            return result;
         }
         catch (Exception ex)
         {
