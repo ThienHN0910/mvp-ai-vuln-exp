@@ -50,6 +50,6 @@ VITE_API_BASE_URL=http://localhost:5000
 
 ## Notes
 
-- The AST pre-screen skips Gemini API calls if no risky pattern is detected.
+- The AST pre-screen now still sends clean-looking code to Gemini for confirmation and caches snippets that Gemini verifies as safe.
 - Webhook analysis runs asynchronously so GitHub gets an immediate 200 response.
 - Results are kept in in-memory storage for MVP purposes.

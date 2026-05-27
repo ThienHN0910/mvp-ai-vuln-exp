@@ -1,13 +1,21 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using Backend.Models;
 
 namespace Backend.Services;
 
 public class GeminiService
 {
+    private const string DefaultGeminiModel = "gemini-3.1-flash-lite";
+    private const string SafeReviewType = "None";
+    private const string SafeReviewSeverity = "Low";
+
+    private static readonly ConcurrentDictionary<string, byte> VerifiedSafeFingerprints = new();
+
     private static readonly Regex SqlInjectionRegex = new(
         "(?is)(?:\\$\"[^\"]*(?:SELECT|INSERT|UPDATE|DELETE)[^\"]*\\{[^}]+\\}[^\"]*\"|(?:SELECT|INSERT|UPDATE|DELETE)\\b[^\\n;]*\\+[^\\n;]*)",
         RegexOptions.Compiled);
@@ -38,27 +46,35 @@ public class GeminiService
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _apiKey;
+    private readonly string _model;
 
     public GeminiService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
     {
         _httpClientFactory = httpClientFactory;
         _apiKey = configuration["GEMINI_API_KEY"] ?? configuration["Gemini:ApiKey"] ?? string.Empty;
+        _model = configuration["Gemini:Model"] ?? DefaultGeminiModel;
     }
 
     public async Task<ScanResult> AnalyzeCodeAsync(string rawCode, string? commitId = null, string? author = null, string? message = null)
     {
         var detectedType = DetectVulnerabilityType(rawCode, out var matchedTypes);
+        var fingerprint = CreateFingerprint(rawCode);
 
-        if (detectedType is null)
+        if (VerifiedSafeFingerprints.ContainsKey(fingerprint))
         {
-            return CreateResult(false, "None", "Low", "Mock AST pre-screen found no risky patterns.",
+            return CreateResult(false, SafeReviewType, SafeReviewSeverity,
+                "Previously verified safe by Gemini review.",
                 "No remediation required.", rawCode, commitId, author, message);
         }
 
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            return CreateFallbackVulnerableResult(detectedType, rawCode, commitId, author, message,
-                "GEMINI_API_KEY is not configured. Returned deterministic fallback analysis.");
+            return detectedType is null
+                ? CreateResult(false, SafeReviewType, SafeReviewSeverity,
+                    "Mock AST pre-screen found no risky patterns. Gemini review is unavailable, so the sample was treated as clean.",
+                    "No remediation required.", rawCode, commitId, author, message)
+                : CreateFallbackVulnerableResult(detectedType, rawCode, commitId, author, message,
+                    "GEMINI_API_KEY is not configured. Returned deterministic fallback analysis.");
         }
 
         try
@@ -66,13 +82,35 @@ public class GeminiService
             var responseText = await CallGeminiAsync(rawCode, detectedType, matchedTypes);
             var parsed = ParseGeminiJson(responseText);
 
+            if (!parsed.IsVulnerable)
+            {
+                VerifiedSafeFingerprints.TryAdd(fingerprint, 0);
+
+                return CreateResult(
+                    false,
+                    SafeReviewType,
+                    SafeReviewSeverity,
+                    string.IsNullOrWhiteSpace(parsed.Explanation)
+                        ? "Gemini review confirmed no security vulnerability."
+                        : parsed.Explanation,
+                    "No remediation required.",
+                    rawCode,
+                    commitId,
+                    author,
+                    message);
+            }
+
+            var resolvedType = string.IsNullOrWhiteSpace(parsed.Type)
+                ? (detectedType ?? SafeReviewType)
+                : parsed.Type;
+
             return CreateResult(
-                parsed.IsVulnerable,
-                string.IsNullOrWhiteSpace(parsed.Type) ? detectedType : parsed.Type,
-                string.IsNullOrWhiteSpace(parsed.Severity) ? DefaultSeverityFor(parsed.Type ?? detectedType) : parsed.Severity,
+                true,
+                resolvedType,
+                string.IsNullOrWhiteSpace(parsed.Severity) ? DefaultSeverityFor(resolvedType) : parsed.Severity,
                 parsed.Explanation,
                 string.IsNullOrWhiteSpace(parsed.SuggestedFix)
-                    ? VulnerabilityFixTemplates.GetValueOrDefault(parsed.Type ?? detectedType, "Use secure coding best practices.")
+                    ? VulnerabilityFixTemplates.GetValueOrDefault(resolvedType, "Use secure coding best practices.")
                     : parsed.SuggestedFix,
                 rawCode,
                 commitId,
@@ -81,25 +119,33 @@ public class GeminiService
         }
         catch (Exception ex)
         {
+            if (detectedType is null)
+            {
+                return CreateResult(false, SafeReviewType, SafeReviewSeverity,
+                    $"Gemini review could not be completed: {ex.Message}",
+                    "No remediation required.", rawCode, commitId, author, message);
+            }
+
             return CreateFallbackVulnerableResult(detectedType, rawCode, commitId, author, message,
                 $"Gemini request failed: {ex.Message}");
         }
     }
 
-    private async Task<string> CallGeminiAsync(string rawCode, string detectedType, IReadOnlyCollection<string> matchedTypes)
+    private async Task<string> CallGeminiAsync(string rawCode, string? detectedType, IReadOnlyCollection<string> matchedTypes)
     {
         var endpoint =
-            $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={_apiKey}";
+            $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent?key={_apiKey}";
 
         var systemInstruction =
             "You are a senior C# application security scanner. Analyze code as a multi-vulnerability engine. " +
-            "Focus first on AST-detected category hints and validate context. Return STRICT RAW JSON only, no markdown, no commentary. " +
+            "Always perform a full review even when the AST pre-screen finds no risky patterns. Validate context. Return STRICT RAW JSON only, no markdown, no commentary. " +
             "Schema: {\"isVulnerable\":bool,\"type\":string,\"severity\":\"Critical|High|Medium|Low\",\"explanation\":string,\"suggestedFix\":string}. " +
-            "Type must be one of: SQL Injection, XSS, Hardcoded Secret, Path Traversal. " +
+            "If no issue is found, set isVulnerable to false, type to None, severity to Low, and suggestedFix to No remediation required. " +
+            "Type must be one of: SQL Injection, XSS, Hardcoded Secret, Path Traversal, None. " +
             "Generate production-grade C# fix: SqlParameter for SQLi, HtmlEncoder for XSS, Environment.GetEnvironmentVariable for secrets, Path.GetFileName + allowlisted base path for traversal.";
 
         var userPrompt =
-            $"Detected by AST pre-screen: {detectedType}. All matched categories: {string.Join(", ", matchedTypes)}.\n" +
+            $"Detected by AST pre-screen: {(detectedType ?? "None")}. All matched categories: {string.Join(", ", matchedTypes)}.\n" +
             "Analyze this code and respond with raw JSON only:\n" + rawCode;
 
         var payload = new
@@ -238,6 +284,14 @@ public class GeminiService
             SuggestedFix = suggestedFix,
             Timestamp = DateTime.UtcNow
         };
+    }
+
+    private static string CreateFingerprint(string rawCode)
+    {
+        var normalized = rawCode.Trim();
+        var bytes = Encoding.UTF8.GetBytes(normalized);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
     }
 
     private static string DefaultSeverityFor(string? type)
