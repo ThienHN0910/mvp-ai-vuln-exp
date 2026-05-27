@@ -1,4 +1,23 @@
+# Build outputs
 Backend/bin/
 Backend/obj/
 Frontend/node_modules/
 Frontend/dist/
+
+# Environment & Configuration
+*.env
+*.env.local
+*.env.*.local
+appsettings.json
+appsettings.*.json
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
