@@ -15,7 +15,7 @@ A full MVP with:
 ## Backend Setup
 
 ```bash
-cd /tmp/workspace/ThienHN0910/mvp-ai-vuln-exp/Backend
+cd Backend
 export GEMINI_API_KEY="your_key_here"
 dotnet restore
 dotnet run
@@ -26,7 +26,7 @@ Default backend URL: `http://localhost:5000` (or the URL reported by ASP.NET run
 ## Frontend Setup
 
 ```bash
-cd /tmp/workspace/ThienHN0910/mvp-ai-vuln-exp/Frontend
+cd Frontend
 npm install
 npm run dev
 ```

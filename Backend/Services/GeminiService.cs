@@ -139,8 +139,11 @@ public class GeminiService
 
         using var response = await client.SendAsync(request);
         var responseBody = await response.Content.ReadAsStringAsync();
-
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Gemini API call failed with status {(int)response.StatusCode} ({response.StatusCode}). Body: {responseBody}");
+        }
 
         using var rootDoc = JsonDocument.Parse(responseBody);
         var rawJson = rootDoc.RootElement

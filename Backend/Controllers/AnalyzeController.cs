@@ -15,14 +15,14 @@ public class AnalyzeController : ControllerBase
     }
 
     [HttpPost]
-    public IActionResult Analyze([FromBody] AnalyzeRequest request)
+    public async Task<IActionResult> Analyze([FromBody] AnalyzeRequest request)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.RawCode))
         {
             return BadRequest(new { message = "RawCode is required." });
         }
 
-        var result = _geminiService.AnalyzeCodeAsync(request.RawCode).GetAwaiter().GetResult();
+        var result = await _geminiService.AnalyzeCodeAsync(request.RawCode);
         return Ok(result);
     }
 }

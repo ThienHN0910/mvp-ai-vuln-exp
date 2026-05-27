@@ -15,4 +15,5 @@ public class ScanResult
     public DateTime Timestamp { get; set; }
 
     public static List<ScanResult> Results { get; } = new();
+    public static object ResultsLock { get; } = new();
 }

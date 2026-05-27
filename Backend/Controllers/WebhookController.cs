@@ -11,10 +11,12 @@ public class WebhookController : ControllerBase
 {
     private const string FallbackUnsafeCode = "var query = \"SELECT * FROM Users WHERE Name = '\" + input + \"'\";";
     private readonly GeminiService _geminiService;
+    private readonly ILogger<WebhookController> _logger;
 
-    public WebhookController(GeminiService geminiService)
+    public WebhookController(GeminiService geminiService, ILogger<WebhookController> logger)
     {
         _geminiService = geminiService;
+        _logger = logger;
     }
 
     [HttpPost("github")]
@@ -37,10 +39,17 @@ public class WebhookController : ControllerBase
 
         _ = Task.Run(async () =>
         {
-            var result = await _geminiService.AnalyzeCodeAsync(rawCode, commitId, author, message);
-            lock (ScanResult.Results)
+            try
             {
-                ScanResult.Results.Insert(0, result);
+                var result = await _geminiService.AnalyzeCodeAsync(rawCode, commitId, author, message);
+                lock (ScanResult.ResultsLock)
+                {
+                    ScanResult.Results.Insert(0, result);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Webhook analysis failed for commit {CommitId}", commitId);
             }
         });
 
@@ -50,7 +59,7 @@ public class WebhookController : ControllerBase
     [HttpGet("results")]
     public IActionResult GetResults()
     {
-        lock (ScanResult.Results)
+        lock (ScanResult.ResultsLock)
         {
             return Ok(ScanResult.Results.ToList());
         }
@@ -66,7 +75,17 @@ public class WebhookController : ControllerBase
                 var line = value.GetString();
                 if (!string.IsNullOrWhiteSpace(line))
                 {
-                    return line.TrimStart('+', ' ');
+                    var normalized = line;
+                    if (normalized.StartsWith('+'))
+                    {
+                        normalized = normalized[1..];
+                        if (normalized.StartsWith(' '))
+                        {
+                            normalized = normalized[1..];
+                        }
+                    }
+
+                    return normalized;
                 }
             }
         }
