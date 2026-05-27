@@ -146,7 +146,7 @@ curl -X POST http://localhost:5000/api/ast/index \
 curl -X POST http://localhost:5000/api/secrets/detect \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "var apiKey = \"AIzaSyAlF7favEJrvuBqF9-wNotL0EodDvg37Wk\";",
+    "code": "var apiKey = \"ur-api-key\";",
     "filePath": "config.cs"
   }'
 ```
@@ -159,7 +159,7 @@ curl -X POST http://localhost:5000/api/secrets/detect \
   "secrets": [
     {
       "patternName": "GoogleApiKey",
-      "matchedText": "AIzaSyAlF7favEJrvuBqF9-wNotL0EodDvg37Wk",
+      "matchedText": "ur-api-key",
       "line": 1,
       "severity": "High"
     }
